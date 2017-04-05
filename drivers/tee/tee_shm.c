@@ -586,6 +586,20 @@ ssize_t tee_shm_get_page_offset(struct tee_shm *shm)
 EXPORT_SYMBOL_GPL(tee_shm_get_page_offset);
 
 /**
+ * tee_shm_get_pages() - Get list of pages that hold shared buffer
+ * @shm:	Shared memory handle
+ * @num_pages:	Number of pages will be stored there
+ * @returns pointer to pages array
+ */
+struct page **tee_shm_get_pages(struct tee_shm *shm, size_t *num_pages)
+{
+	if (num_pages)
+		*num_pages = shm->num_pages;
+	return shm->pages;
+}
+EXPORT_SYMBOL_GPL(tee_shm_get_pages);
+
+/**
  * tee_shm_get_from_id() - Find shared memory object and increase reference
  * count
  * @ctx:	Context owning the shared memory
