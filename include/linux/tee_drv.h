@@ -32,6 +32,7 @@
 #define TEE_SHM_USER_MAPPED	BIT(4)  /* Memory mapped in user space */
 #define TEE_SHM_POOL		BIT(5)  /* Memory allocated from pool */
 
+struct device;
 struct tee_device;
 struct tee_shm;
 struct tee_shm_pool;
