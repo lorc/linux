@@ -15,11 +15,9 @@
 
 #ifndef SHM_POOL_H
 #define SHM_POOL_H
-#include "../tee_private.h"
 
-struct tee_shm_pool *
-optee_shm_get_pool(struct tee_shm_pool_mem_info *dmabuf_info);
+#include <linux/tee_drv.h>
 
-void optee_shm_pool_free(struct tee_shm_pool *pool);
+struct tee_shm_pool_mgr *optee_shm_pool_alloc_pages(void);
 
 #endif
