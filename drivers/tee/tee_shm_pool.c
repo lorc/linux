@@ -146,7 +146,7 @@ struct tee_shm_pool_mgr *tee_shm_pool_mgr_alloc_res_mem(unsigned long vaddr,
 
 	mgr->ops = &pool_ops_generic;
 
-	return 0;
+	return mgr;
 err:
 	kfree(mgr);
 
