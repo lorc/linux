@@ -472,6 +472,7 @@ optee_config_shm_memremap(optee_invoke_fn *invoke_fn, void **memremaped_shm,
 
 		vaddr += sz;
 		paddr += sz;
+		size -= sz;
 	}
 
 	rc = tee_shm_pool_mgr_alloc_res_mem(vaddr, paddr, size, PAGE_SHIFT);
