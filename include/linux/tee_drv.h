@@ -17,6 +17,7 @@
 
 #include <linux/types.h>
 #include <linux/idr.h>
+#include <linux/kref.h>
 #include <linux/list.h>
 #include <linux/tee.h>
 
@@ -47,6 +48,7 @@ struct tee_context {
 	struct tee_device *teedev;
 	struct list_head list_shm;
 	void *data;
+	struct kref refcount;
 };
 
 struct tee_param_memref {
