@@ -63,6 +63,9 @@ static void tee_shm_release(struct tee_shm *shm)
 				"unregister shm %p failed: %d", shm, rc);
 	}
 
+	if (shm->ctx)
+		teedev_ctx_put(shm->ctx);
+
 	kfree(shm);
 	tee_device_put(teedev);
 }
@@ -199,6 +202,7 @@ struct tee_shm *__tee_shm_alloc(struct tee_context *ctx,
 		mutex_lock(&teedev->mutex);
 		list_add_tail(&shm->link, &ctx->list_shm);
 		mutex_unlock(&teedev->mutex);
+		teedev_ctx_get(ctx);
 	}
 
 	return shm;
@@ -264,6 +268,8 @@ struct tee_shm *tee_shm_register(struct tee_context *ctx, unsigned long addr,
 		tee_device_put(teedev);
 		return ERR_PTR(-EINVAL);
 	}
+
+	teedev_ctx_get(ctx);
 
 	shm = kzalloc(sizeof(*shm), GFP_KERNEL);
 	if (!shm) {
@@ -341,6 +347,7 @@ err:
 		kfree(shm->pages);
 	}
 	kfree(shm);
+	teedev_ctx_put(ctx);
 	tee_device_put(teedev);
 	return ret;
 }
@@ -354,6 +361,8 @@ struct tee_shm *tee_shm_register_fd(struct tee_context *ctx, int fd)
 
 	if (!tee_device_get(ctx->teedev))
 		return ERR_PTR(-EINVAL);
+
+	teedev_ctx_get(ctx);
 
 	ref = kzalloc(sizeof(*ref), GFP_KERNEL);
 	if (!ref) {
@@ -435,6 +444,7 @@ err:
 			dma_buf_put(ref->dmabuf);
 	}
 	kfree(ref);
+	teedev_ctx_put(ctx);
 	tee_device_put(ctx->teedev);
 	return rc;
 }

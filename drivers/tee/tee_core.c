@@ -52,6 +52,7 @@ static struct tee_context *teedev_open(struct tee_device *teedev)
 		goto err;
 	}
 
+	atomic_set(&ctx->refcount, 1);
 	ctx->teedev = teedev;
 	INIT_LIST_HEAD(&ctx->list_shm);
 	rc = teedev->desc->ops->open(ctx);
@@ -66,17 +67,30 @@ err:
 
 }
 
+void teedev_ctx_get(struct tee_context *ctx)
+{
+	if (ctx->releasing)
+		return;
+
+	atomic_inc(&ctx->refcount);
+}
+
+void teedev_ctx_put(struct tee_context *ctx)
+{
+	if (ctx->releasing)
+		return;
+
+	if (atomic_sub_and_test(1, &ctx->refcount)) {
+		ctx->releasing = true;
+		ctx->teedev->desc->ops->release(ctx);
+		kfree(ctx);
+	}
+}
+
 static void teedev_close_context(struct tee_context *ctx)
 {
-	struct tee_shm *shm;
-
-	ctx->teedev->desc->ops->release(ctx);
-	mutex_lock(&ctx->teedev->mutex);
-	list_for_each_entry(shm, &ctx->list_shm, link)
-		shm->ctx = NULL;
-	mutex_unlock(&ctx->teedev->mutex);
 	tee_device_put(ctx->teedev);
-	kfree(ctx);
+	teedev_ctx_put(ctx);
 }
 
 static int tee_open(struct inode *inode, struct file *filp)

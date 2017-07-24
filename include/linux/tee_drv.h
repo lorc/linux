@@ -15,6 +15,7 @@
 #ifndef __TEE_DRV_H
 #define __TEE_DRV_H
 
+#include <linux/atomic.h>
 #include <linux/types.h>
 #include <linux/idr.h>
 #include <linux/list.h>
@@ -42,11 +43,15 @@ struct tee_shm_pool;
  * @teedev:	pointer to this drivers struct tee_device
  * @list_shm:	List of shared memory object owned by this context
  * @data:	driver specific context data, managed by the driver
+ * @registered: reference counter for this structure
+ * @releasing:  flag that indicates if context is being released right now
  */
 struct tee_context {
 	struct tee_device *teedev;
 	struct list_head list_shm;
 	void *data;
+	atomic_t refcount;
+	bool releasing;
 };
 
 struct tee_param_memref {
