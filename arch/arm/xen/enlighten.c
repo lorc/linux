@@ -400,7 +400,6 @@ static int __init xen_guest_init(void)
 	 * cpu idle and cpu freq.
 	 */
 	disable_cpuidle();
-	disable_cpufreq();
 
 	xen_init_IRQ();
 
