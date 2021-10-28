@@ -24,19 +24,6 @@ static inline int __init pci_xen_initial_domain(void)
 {
 	return -1;
 }
-static inline int xen_find_device_domain_owner(struct pci_dev *dev)
-{
-	return -1;
-}
-static inline int xen_register_device_domain_owner(struct pci_dev *dev,
-						   uint16_t domain)
-{
-	return -1;
-}
-static inline int xen_unregister_device_domain_owner(struct pci_dev *dev)
-{
-	return -1;
-}
 #endif
 
 #if defined(CONFIG_PCI_MSI)
