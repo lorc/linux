@@ -138,7 +138,7 @@
 
 &pciec0 {
 	status = "okay";
-	pinctrl-0 = <&pcie0_pins>;
+	pinctrl-0 = <&pcie0_pins>, <&pcie1_pins>;
 	pinctrl-names = "default";
 };
 
