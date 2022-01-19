@@ -8,8 +8,11 @@
  * Author: Jingoo Han <jg1.han@samsung.com>
  */
 
+#define DEBUG
+
 #include <linux/irqchip/chained_irq.h>
 #include <linux/irqdomain.h>
+#include <linux/module.h>
 #include <linux/msi.h>
 #include <linux/of_address.h>
 #include <linux/of_pci.h>
@@ -18,6 +21,10 @@
 
 #include "../../pci.h"
 #include "pcie-designware.h"
+
+static int msi_init = 0;
+module_param(msi_init, int, 0644);
+MODULE_PARM_DESC(msi_init, "Use own msi_host_init");
 
 static struct pci_ops dw_pcie_ops;
 static struct pci_ops dw_child_pcie_ops;
@@ -283,6 +290,8 @@ void dw_pcie_msi_init(struct pcie_port *pp)
 	if (!IS_ENABLED(CONFIG_PCI_MSI))
 		return;
 
+	printk("%s: msi_target = %llx\n", __func__, msi_target);
+
 	/* Program the msi_data */
 	dw_pcie_writel_dbi(pci, PCIE_MSI_ADDR_LO, lower_32_bits(msi_target));
 	dw_pcie_writel_dbi(pci, PCIE_MSI_ADDR_HI, upper_32_bits(msi_target));
@@ -376,7 +385,8 @@ int dw_pcie_host_init(struct pcie_port *pp)
 			}
 		}
 
-		if (!pp->ops->msi_host_init) {
+		printk("%s: ======== msi_init = %d\n", __func__, msi_init);
+		if (!pp->ops->msi_host_init || msi_init) {
 			pp->msi_irq_chip = &dw_pci_msi_bottom_irq_chip;
 
 			ret = dw_pcie_allocate_domains(pp);

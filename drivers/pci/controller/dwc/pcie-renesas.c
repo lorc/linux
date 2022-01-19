@@ -50,6 +50,11 @@
 #define  SMLH_LINK_UP		BIT(7)
 #define  RDLH_LINK_UP		BIT(6)
 
+#define AXIINTCADDR		0x0a00	/* 0x6c00 */
+#define AXIINTCADDR_VAL		0xf1050040	/* FIXME */
+#define AXIINTCCONT		0x0a04	/* 0x6c04 */
+#define AXIINTCCONT_VAL		(BIT(31) | GENMASK(11, 2))
+
 /* PCIEC PHY */
 #define RCVRCTRLP0		0x0040
 #define  PHY0_RX1_TERM_ACDC	BIT(14)
@@ -192,6 +197,13 @@ static int renesas_pcie_host_init(struct pcie_port *pp)
 	return 0;
 }
 
+static int renesas_pcie_msi_host_init(struct pcie_port *pp)
+{
+	printk("%s: ============ dummy msi host init\n", __func__);
+	pp->msi_data = 0xf1040000 + 0x10040; /* FIXME */
+	return 0;
+}
+
 static void renesas_pcie_set_num_vectors(struct pcie_port *pp)
 {
 	pp->num_vectors = MAX_MSI_IRQS;
@@ -242,6 +254,10 @@ static void renesas_pcie_init_rc(struct renesas_pcie *pcie)
 	val = renesas_pcie_readl(pcie, PCIEMSR0);
 	val |= DEVICE_TYPE_RC;
 	renesas_pcie_writel(pcie, PCIEMSR0, val);
+
+	printk("%s: ----------- set for INTC 64bit\n", __func__);
+	renesas_pcie_writel(pcie, AXIINTCADDR, AXIINTCADDR_VAL);
+	renesas_pcie_writel(pcie, AXIINTCCONT, AXIINTCCONT_VAL);
 
 	/* Enable DBI read-only registers for writing */
 	dw_pcie_dbi_ro_wr_en(pci);
