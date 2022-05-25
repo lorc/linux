@@ -21,6 +21,7 @@
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
 #include <linux/reset.h>
+#include <xen/xen.h>
 
 #include "../../pci.h"
 #include "pcie-designware.h"
@@ -149,11 +150,37 @@ static const struct dw_pcie_ops dw_pcie_ops = {
 	.link_up = renesas_pcie_link_up,
 };
 
+void __iomem *renesas_xen_map_bus(struct pci_bus *bus, unsigned int devfn,
+			       int where)
+{
+	struct pcie_port *pp = bus->sysdata;
+	const int bus_shift = 20;
+	unsigned int devfn_shift = bus_shift - 8;
+	unsigned int busn = bus->number;
+	void __iomem *base;
+
+	busn -= 1;
+
+	base = pp->va_cfg0_base + (busn << bus_shift);
+	return base + (devfn << devfn_shift) + where;
+}
+
+
+static struct pci_ops renesas_xen_child_ops = {
+	.map_bus = renesas_xen_map_bus,
+	.read = pci_generic_config_read,
+	.write = pci_generic_config_write,
+};
+
 static int renesas_pcie_host_init(struct pcie_port *pp)
 {
 	struct dw_pcie *pci = to_dw_pcie_from_pp(pp);
 	u32 val;
 	int ret;
+
+	/* Xen will emulate ECAM address space for us */
+	if (xen_domain())
+		pp->bridge->child_ops = &renesas_xen_child_ops;
 
 	dw_pcie_setup_rc(pp);
 
