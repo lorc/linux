@@ -4,6 +4,7 @@
  * Copyright (C) 2020 Renesas Electronics Corporation
  */
 
+#include <linux/debugfs.h>
 #include <linux/dma-mapping.h>
 #include <linux/err.h>
 #include <linux/etherdevice.h>
@@ -2547,6 +2548,10 @@ static void rswitch_queue_interrupt(struct net_device *ndev)
 {
 	struct rswitch_device *rdev = netdev_priv(ndev);
 
+	/* Do not handle interrupts for TSN2, as it is used for benchmark */
+	if (rdev == rdev->priv->rdev[2])
+		return;
+
 	if (napi_schedule_prep(&rdev->napi)) {
 		rswitch_enadis_data_irq(rdev->priv, rdev->tx_chain->index, false);
 		rswitch_enadis_data_irq(rdev->priv, rdev->rx_chain->index, false);
@@ -2722,6 +2727,187 @@ static void rswitch_deinit(struct rswitch_private *priv)
 	rswitch_desc_free(priv);
 }
 
+#define TEST_TX_SZ (1500)
+
+static void fill_one_entry(struct rswitch_gwca_chain *c, int remote_idx)
+{
+	int entry;
+	dma_addr_t dma_addr;
+	struct rswitch_ext_desc *desc;
+	struct sk_buff *skb;
+	int err;
+
+	if (c->cur - c->dirty > c->num_ring - 1)
+		pr_err("TX chain overflow\n");
+
+	entry = c->cur % c->num_ring;
+	skb = dev_alloc_skb(PKT_BUF_SZ + RSWITCH_ALIGN - 1);
+	if (!skb)
+	{
+		pr_err("Failed to allocate SKB\n");
+		goto err;
+	}
+	skb_put(skb, TEST_TX_SZ);
+	c->skb[entry] = skb;
+
+	dma_addr = dma_map_single(c->ndev->dev.parent, skb->data, skb->len, DMA_TO_DEVICE);
+	if ((err = dma_mapping_error(c->ndev->dev.parent, dma_addr)))
+	{
+		pr_err("dma_mapping_error: %d\n", err);
+		goto err;
+	}
+
+	desc = &c->ring[entry];
+	desc->dptrl = cpu_to_le32(lower_32_bits(dma_addr));
+	desc->dptrh = cpu_to_le32(upper_32_bits(dma_addr));
+	desc->info_ds = cpu_to_le16(skb->len);
+	if (skb->len != TEST_TX_SZ)
+		pr_err("skb len is %d\n", skb->len);
+	desc->info1 |= ((u64)remote_idx << 32) | (8UL << 48) |  BIT(2);
+	dma_wmb();
+
+	desc->die_dt = DT_FSINGLE | DIE;
+
+	c->cur++;
+
+	return;
+err:
+	pr_err("fill_one_entry failed\n");
+
+}
+
+static ssize_t rswitch_run_gwca_test(struct file *file, const char __user *user_buf,
+			      size_t count, loff_t *ppos)
+{
+	bool bv;
+	int r;
+	struct rswitch_device *rdev;
+	struct rswitch_private *priv = glob_priv;
+	int i;
+	unsigned long long t_start, t_end;
+
+	r = kstrtobool_from_user(user_buf, count, &bv);
+	if (r || !bv)
+		goto out;
+
+	/* Use tsn2's chains for test  */
+	/* It is not inoperable anyways */
+	rdev = priv->rdev[2];
+	/* 1. Will tx chain with random data */
+	for (i = 0; i < rdev->tx_chain->num_ring; i++)
+		fill_one_entry(rdev->tx_chain, rdev->rx_chain->index);
+	/* 2. Trigger TX */
+	pr_info("Trigger!\n");
+	t_start = sched_clock();
+	rswitch_trigger_chain(priv, rdev->tx_chain);
+
+	/* 3. Wait for the last packet to be received */
+	i = (rdev->rx_chain->cur + rdev->tx_chain->num_ring - 1) %
+		rdev->rx_chain->num_ring;
+
+	dma_rmb();
+	while(rdev->rx_chain->ts_ring[i].die_dt == (DT_FEMPTY | DIE))
+	{
+		dma_rmb();
+		cpu_relax();
+	}
+	t_end = sched_clock();
+	pr_info("Tx Done: i = %d die_dt = %x ds = %d\n", i, rdev->rx_chain->ts_ring[i].die_dt,
+		le16_to_cpu(rdev->rx_chain->ts_ring[i].info_ds));
+	pr_info("Time passed: %lld ns\n", t_end - t_start);
+	pr_info("Throughput: %lld MB/s\n", (unsigned long long)TEST_TX_SZ *
+		rdev->tx_chain->num_ring * 8 * 1000 / (t_end - t_start));
+	/* 4. Clean up */
+	rswitch_tx_free(rdev->ndev, true);
+	i = INT_MAX;
+	rswitch_rx(rdev->ndev, &i);
+	i = INT_MAX;
+	rswitch_rx(rdev->ndev, &i);
+out:
+	return count;
+}
+
+static ssize_t rswitch_run_gwca_test_ex(struct file *file, const char __user *user_buf,
+					size_t count, loff_t *ppos)
+{
+	bool bv;
+	int r;
+	struct rswitch_device *rdev;
+	struct rswitch_private *priv = glob_priv;
+	int i;
+	unsigned long long t_start, t_end, t_prev;
+	u32 *measurements = NULL;
+
+	r = kstrtobool_from_user(user_buf, count, &bv);
+	if (r || !bv)
+		goto out;
+
+	/* Use tsn2's chains for test */
+	/* It is not inoperable anyways */
+	rdev = priv->rdev[2];
+
+	measurements = kmalloc(sizeof(u32) * rdev->tx_chain->num_ring, GFP_KERNEL);
+
+	/* 1. Will tx chain with random data */
+	for (i = 0; i < rdev->tx_chain->num_ring; i++)
+		fill_one_entry(rdev->tx_chain, rdev->rx_chain->index);
+	/* 2. Trigger TX */
+	pr_info("Trigger!\n");
+	t_start = sched_clock();
+	rswitch_trigger_chain(priv, rdev->tx_chain);
+	t_prev = t_start;
+	/* 3. Count every TS */
+	for(i = 0; i < rdev->tx_chain->num_ring; i++)
+	{
+		int idx = (rdev->rx_chain->cur + i) % rdev->rx_chain->num_ring;
+
+		dma_rmb();
+		while(rdev->rx_chain->ts_ring[idx].die_dt == (DT_FEMPTY | DIE))
+		{
+			dma_rmb();
+			cpu_relax();
+			if (sched_clock() - t_prev > 100000000LL) {
+				pr_err("Error waiting packet %d: %x\n", i, rdev->rx_chain->ts_ring[idx].die_dt);
+				t_prev = sched_clock();
+				break;
+			}
+		}
+
+		measurements[i] = sched_clock() - t_prev;
+		t_prev = t_prev + measurements[i];
+	}
+	t_end = sched_clock();
+	/* 4. Report */
+	pr_info("Tx Done: i = %d die_dt = %x ds = %d\n", i, rdev->rx_chain->ts_ring[i].die_dt,
+		le16_to_cpu(rdev->rx_chain->ts_ring[i].info_ds));
+	pr_info("Time passed: %lld ns\n", t_end - t_start);
+	pr_info("Throughput: %lld MB/s\n", (unsigned long long)TEST_TX_SZ *
+		rdev->tx_chain->num_ring * 8 * 1000 / (t_end - t_start));
+	/* for (i = 0; i < rdev->tx_chain->num_ring; i++) */
+	/* 	pr_info("%d: %u\n", i, measurements[i]); */
+	/* 5. Clean up */
+	rswitch_tx_free(rdev->ndev, true);
+	i = INT_MAX;
+	rswitch_rx(rdev->ndev, &i);
+	i = INT_MAX;
+	rswitch_rx(rdev->ndev, &i);
+out:
+	kfree(measurements);
+	return count;
+}
+
+static const struct file_operations fops_gwca_test = {
+	.write =	rswitch_run_gwca_test,
+	.open =		simple_open,
+	.llseek =	default_llseek,
+};
+
+static const struct file_operations fops_gwca_test_ex = {
+	.write =	rswitch_run_gwca_test_ex,
+	.open =		simple_open,
+	.llseek =	default_llseek,
+};
+
 static int renesas_eth_sw_probe(struct platform_device *pdev)
 {
 	struct rswitch_private *priv;
@@ -2793,6 +2979,9 @@ static int renesas_eth_sw_probe(struct platform_device *pdev)
 	device_set_wakeup_capable(&pdev->dev, 1);
 
 	glob_priv = priv;
+
+	debugfs_create_file("rswitch_gwca_test", S_IWUGO, NULL, NULL, &fops_gwca_test);
+	debugfs_create_file("rswitch_gwca_test2", S_IWUGO, NULL, NULL, &fops_gwca_test_ex);
 
 	return 0;
 }

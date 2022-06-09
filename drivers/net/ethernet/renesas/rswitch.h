@@ -130,8 +130,8 @@ struct rswitch_gwca_chain {
 #define RSWITCH_MAX_NUM_ETHA	3
 #define RSWITCH_MAX_NUM_NDEV	8
 
-#define TX_RING_SIZE		1024
-#define RX_RING_SIZE		1024
+#define TX_RING_SIZE		(1024 * 2)
+#define RX_RING_SIZE		(1024 * 4)
 
 #define PKT_BUF_SZ		1584
 #define RSWITCH_ALIGN		128
