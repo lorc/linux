@@ -1020,7 +1020,7 @@ static bool rswitch_rx(struct net_device *ndev, int *quota)
 		desc->die_dt = DT_FEMPTY | DIE;
 	}
 
-	*quota -= limit - (++boguscnt);
+	*quota -= limit - (boguscnt++);
 
 	return boguscnt <= 0;
 }
