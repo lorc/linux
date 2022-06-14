@@ -22,6 +22,9 @@
 #include <linux/slab.h>
 #include <linux/spinlock.h>
 
+#include <linux/trace_events.h>
+#include <linux/crc32.h>
+
 #include "rswitch_ptp.h"
 #include "rswitch.h"
 
@@ -854,6 +857,38 @@ static int num_virt_devices = 6;
 module_param(num_virt_devices, int, 0644);
 MODULE_PARM_DESC(num_virt_devices, "Number of virtual interfaces");
 
+static struct synth_field_desc packet_trace[] = {
+	{.type = "u32", .name = "chain"},
+	{.type = "u32", .name = "packet_id"},
+};
+
+static struct synth_field_desc chain_trace[] = {
+	{.type = "u32", .name = "chain"},
+};
+
+static struct synth_field_desc poll_trace[] = {
+	{.type = "u32", .name = "chain"},
+	{.type = "int", .name = "num_packets"},
+};
+
+static struct synth_field_desc irq_ed_trace[] = {
+	{.type = "u32", .name = "chain"},
+	{.type = "bool", .name = "irq_state"},
+};
+
+static struct trace_event_file *packet_tx_evt;
+static struct trace_event_file *packet_rx_evt;
+static struct trace_event_file *chain_irq_evt;
+static struct trace_event_file *poll_start_evt;
+static struct trace_event_file *poll_done_evt;
+static struct trace_event_file *tx_free_done_evt;
+static struct trace_event_file *irq_ed_evt;
+
+static u32 my_chksum(struct sk_buff *skb)
+{
+	return ether_crc(skb->len, skb->data);
+}
+
 #define RSWITCH_TIMEOUT_MS	1000
 static int rswitch_reg_wait(void __iomem *addr, u32 offs, u32 mask, u32 expected)
 {
@@ -921,6 +956,8 @@ static void rswitch_enadis_data_irq(struct rswitch_private *priv, int index, boo
 	u32 offs = (enable ? GWDIE0 : GWDID0) + (index / 32) * 0x10;
 	u32 tmp = 0;
 
+	synth_event_trace(irq_ed_evt, 2, index, enable);
+
 	/* For VPF? */
 	if (enable)
 		tmp = rs_read32(priv->addr + offs);
@@ -986,6 +1023,7 @@ static bool rswitch_rx(struct net_device *ndev, int *quota)
 			shhwtstamps->hwtstamp = timespec64_to_ktime(ts);
 		}
 		skb_put(skb, pkt_len);
+		synth_event_trace(packet_rx_evt, 2, c->index, my_chksum(skb));
 		skb->protocol = eth_type_trans(skb, ndev);
 		netif_receive_skb(skb);
 		rdev->ndev->stats.rx_packets++;
@@ -1075,6 +1113,7 @@ static int rswitch_tx_free(struct net_device *ndev, bool free_txed_only)
 		rdev->ndev->stats.tx_bytes += size;
 	}
 
+	synth_event_trace(tx_free_done_evt, 2, c->index, free_num);
 	return free_num;
 }
 
@@ -1086,6 +1125,7 @@ int rswitch_poll(struct napi_struct *napi, int budget)
 	int quota = budget;
 	unsigned long flags;
 
+	synth_event_trace(poll_start_evt, 1, rdev->rx_chain->index);
 retry:
 	rswitch_tx_free(ndev, true);
 
@@ -1106,6 +1146,7 @@ retry:
 	__iowmb();
 
 out:
+	synth_event_trace(poll_done_evt, 2, rdev->rx_chain->index, budget - quota);
 	return budget - quota;
 }
 
@@ -1796,6 +1837,8 @@ static int rswitch_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 
 	spin_lock_irqsave(&rdev->lock, flags);
 
+	synth_event_trace(packet_tx_evt, 2, c->index, my_chksum(skb));
+
 	if (c->cur - c->dirty > c->num_ring - 1) {
 		netif_stop_subqueue(ndev, 0);
 		ret = NETDEV_TX_BUSY;
@@ -2480,6 +2523,7 @@ static irqreturn_t __maybe_unused rswitch_data_irq(struct rswitch_private *priv,
 			continue;
 
 		rswitch_ack_data_irq(priv, c->index);
+		synth_event_trace(chain_irq_evt, 1, c->index);
 		rswitch_queue_interrupt(c->ndev);
 	}
 
@@ -2704,6 +2748,24 @@ static int renesas_eth_sw_probe(struct platform_device *pdev)
 	rswitch_xen_connect_devs(priv->rdev[3], priv->rdev[4]);
 
 	device_set_wakeup_capable(&pdev->dev, 1);
+
+	ret = synth_event_create("packet_tx", packet_trace, ARRAY_SIZE(packet_trace), THIS_MODULE);
+	ret = synth_event_create("packet_rx", packet_trace, ARRAY_SIZE(packet_trace), THIS_MODULE);
+
+	ret = synth_event_create("chain_irq", chain_trace, ARRAY_SIZE(chain_trace), THIS_MODULE);
+	ret = synth_event_create("poll_start", chain_trace, ARRAY_SIZE(chain_trace), THIS_MODULE);
+	ret = synth_event_create("poll_done", poll_trace, ARRAY_SIZE(poll_trace), THIS_MODULE);
+	ret = synth_event_create("tx_free_done", poll_trace, ARRAY_SIZE(poll_trace), THIS_MODULE);
+	ret = synth_event_create("irq_enable_disable", irq_ed_trace, ARRAY_SIZE(irq_ed_trace), THIS_MODULE);
+
+
+	packet_tx_evt = trace_get_event_file(NULL, "synthetic", "packet_tx");
+	packet_rx_evt = trace_get_event_file(NULL, "synthetic", "packet_rx");
+	chain_irq_evt = trace_get_event_file(NULL, "synthetic", "chain_irq");
+	poll_start_evt = trace_get_event_file(NULL, "synthetic", "poll_start");
+	poll_done_evt = trace_get_event_file(NULL, "synthetic", "poll_done");
+	tx_free_done_evt = trace_get_event_file(NULL, "synthetic", "tx_free_done");
+	irq_ed_evt = trace_get_event_file(NULL, "synthetic", "irq_enable_disable");
 
 	return 0;
 }
