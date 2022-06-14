@@ -1084,6 +1084,7 @@ int rswitch_poll(struct napi_struct *napi, int budget)
 	struct rswitch_device *rdev = netdev_priv(ndev);
 	struct rswitch_private *priv = rdev->priv;
 	int quota = budget;
+	unsigned long flags;
 
 retry:
 	rswitch_tx_free(ndev, true);
@@ -1098,8 +1099,10 @@ retry:
 	napi_complete(napi);
 
 	/* Re-enable RX/TX interrupts */
+	local_irq_save(flags);
 	rswitch_enadis_data_irq(priv, rdev->tx_chain->index, true);
 	rswitch_enadis_data_irq(priv, rdev->rx_chain->index, true);
+	local_irq_restore(flags);
 	__iowmb();
 
 out:
