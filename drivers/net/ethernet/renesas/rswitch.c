@@ -954,7 +954,10 @@ static void rswitch_get_data_irq_status(struct rswitch_private *priv, u32 *dis)
 	int i;
 
 	for (i = 0; i < RSWITCH_NUM_IRQ_REGS; i++)
+	{
 		dis[i] = rs_read32(priv->addr + GWDIS0 + i * 0x10);
+		pr_info("dis[%d] = %x\n", i, dis[i]);
+	}
 }
 
 static void rswitch_enadis_data_irq(struct rswitch_private *priv, int index, bool enable)
@@ -968,12 +971,15 @@ static void rswitch_enadis_data_irq(struct rswitch_private *priv, int index, boo
 	if (enable)
 		tmp = rs_read32(priv->addr + offs);
 
+	pr_info("Enadis offs = %x idx=%d tmp = %x enable=%d\n", offs, index, tmp, enable);
 	rs_write32(BIT(index % 32) | tmp, priv->addr + offs);
 }
 
 static void rswitch_ack_data_irq(struct rswitch_private *priv, int index)
 {
 	u32 offs = GWDIS0 + (index / 32) * 0x10;
+
+	pr_info("Ack offs = %x idx = %d\n", offs, index);
 
 	rs_write32(BIT(index % 32), priv->addr + offs);
 }
@@ -2310,6 +2316,7 @@ static struct rswitch_gwca_chain *rswitch_gwca_get(struct rswitch_private *priv)
 
 	while (cnt ++ != 127) {
 		if (test_and_set_bit(index, priv->gwca.used) == 0) {
+			pr_info("allocated chain %d: %d - %d\n", index, index/32, index%32);
 			priv->gwca.chains[index].index = index;
 			return &priv->gwca.chains[index];
 		}
@@ -2552,6 +2559,7 @@ static irqreturn_t rswitch_irq(int irq, void *dev_id)
 
 	rswitch_get_data_irq_status(priv, dis);
 
+	pr_info("rswitch_irq %d\n", irq);
 	if (rswitch_is_any_data_irq(priv, dis, true) ||
 	    rswitch_is_any_data_irq(priv, dis, false))
 		ret = rswitch_data_irq(priv, dis);
@@ -2574,6 +2582,7 @@ static int rswitch_request_irqs(struct rswitch_private *priv)
 			pr_err("Can't get irq %s: %d\n", name, irq);
 			goto out;
 		}
+		pr_info("Got IRQ %d for %s\n", irq, name);
 
 		err = request_irq(irq, rswitch_irq, 0, "rswitch: gwca", priv);
 		if (err < 0)
