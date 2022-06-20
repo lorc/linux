@@ -876,6 +876,12 @@ static struct synth_field_desc irq_ed_trace[] = {
 	{.type = "bool", .name = "irq_state"},
 };
 
+static struct synth_field_desc data_irq_trace[] = {
+	{.type = "u32", .name = "chain"},
+	{.type = "u32", .name = "dis"},
+	{.type = "u32", .name = "dis_and_bit"},
+};
+
 static struct trace_event_file *packet_tx_evt;
 static struct trace_event_file *packet_rx_evt;
 static struct trace_event_file *chain_irq_evt;
@@ -2523,7 +2529,7 @@ static irqreturn_t __maybe_unused rswitch_data_irq(struct rswitch_private *priv,
 			continue;
 
 		rswitch_ack_data_irq(priv, c->index);
-		synth_event_trace(chain_irq_evt, 1, c->index);
+		synth_event_trace(chain_irq_evt, 3, c->index, dis[index], (dis[index] & bit));
 		rswitch_queue_interrupt(c->ndev);
 	}
 
@@ -2752,7 +2758,7 @@ static int renesas_eth_sw_probe(struct platform_device *pdev)
 	ret = synth_event_create("packet_tx", packet_trace, ARRAY_SIZE(packet_trace), THIS_MODULE);
 	ret = synth_event_create("packet_rx", packet_trace, ARRAY_SIZE(packet_trace), THIS_MODULE);
 
-	ret = synth_event_create("chain_irq", chain_trace, ARRAY_SIZE(chain_trace), THIS_MODULE);
+	ret = synth_event_create("data_irq", data_irq_trace, ARRAY_SIZE(data_irq_trace), THIS_MODULE);
 	ret = synth_event_create("poll_start", chain_trace, ARRAY_SIZE(chain_trace), THIS_MODULE);
 	ret = synth_event_create("poll_done", poll_trace, ARRAY_SIZE(poll_trace), THIS_MODULE);
 	ret = synth_event_create("tx_free_done", poll_trace, ARRAY_SIZE(poll_trace), THIS_MODULE);
@@ -2761,7 +2767,7 @@ static int renesas_eth_sw_probe(struct platform_device *pdev)
 
 	packet_tx_evt = trace_get_event_file(NULL, "synthetic", "packet_tx");
 	packet_rx_evt = trace_get_event_file(NULL, "synthetic", "packet_rx");
-	chain_irq_evt = trace_get_event_file(NULL, "synthetic", "chain_irq");
+	chain_irq_evt = trace_get_event_file(NULL, "synthetic", "data_irq");
 	poll_start_evt = trace_get_event_file(NULL, "synthetic", "poll_start");
 	poll_done_evt = trace_get_event_file(NULL, "synthetic", "poll_done");
 	tx_free_done_evt = trace_get_event_file(NULL, "synthetic", "tx_free_done");
