@@ -2305,15 +2305,20 @@ static void rswitch_desc_free(struct rswitch_private *priv)
 
 static struct rswitch_gwca_chain *rswitch_gwca_get(struct rswitch_private *priv)
 {
-	int index;
+	int index = 0;
+	int cnt = 0;
 
-	index = find_first_zero_bit(priv->gwca.used, priv->gwca.num_chains);
-	if (index >= priv->gwca.num_chains)
-		return NULL;
-	set_bit(index, priv->gwca.used);
-	priv->gwca.chains[index].index = index;
+	while (cnt ++ != 127) {
+		if (test_and_set_bit(index, priv->gwca.used) == 0) {
+			priv->gwca.chains[index].index = index;
+			return &priv->gwca.chains[index];
+		}
+		index += 32;
+		if (index > 127)
+			index = (index % 8) + 1;
+	}
 
-	return &priv->gwca.chains[index];
+	return NULL;
 }
 
 static void rswitch_gwca_put(struct rswitch_private *priv,
@@ -2556,30 +2561,47 @@ static irqreturn_t rswitch_irq(int irq, void *dev_id)
 
 static int rswitch_request_irqs(struct rswitch_private *priv)
 {
-	int irq, err;
+	int irq, err, i;
+	char name[32];
 
-	/* FIXME: other queues */
-	irq = platform_get_irq_byname(priv->pdev, "gwca0_rxtx0");
-	if (irq < 0)
-		goto out;
+	/* FIXME: Add constant instead of 8 */
+	for (i = 0; i < 8 ; i++)
+	{
+		snprintf(name, sizeof(name), "gwca0_rxtx%d", i);
+		irq = platform_get_irq_byname(priv->pdev, name);
+		if (irq < 0)
+		{
+			pr_err("Can't get irq %s: %d\n", name, irq);
+			goto out;
+		}
 
-	err = request_irq(irq, rswitch_irq, 0, "rswitch: gwca0_rxtx0", priv);
-	if (err < 0)
-		goto out;
-
+		err = request_irq(irq, rswitch_irq, 0, "rswitch: gwca", priv);
+		if (err < 0)
+		{
+			pr_err("Can't regsiter irq %s: %d\n", name, irq);
+			goto out;
+		}
+	}
 out:
 	return err;
 }
 
 static int rswitch_free_irqs(struct rswitch_private *priv)
 {
-	int irq;
+	int irq, i;
+	char name[32];
 
-	irq = platform_get_irq_byname(priv->pdev, "gwca0_rxtx0");
-	if (irq < 0)
-		return irq;
+	/* FIXME: Add constant instead of 8 */
+	for (i = 0; i < 8 ; i++)
+	{
+		snprintf(name, sizeof(name), "gwca0_rxtx%d", i);
 
-	free_irq(irq, priv);
+		irq = platform_get_irq_byname(priv->pdev, name);
+		if (irq < 0)
+			return irq;
+
+		free_irq(irq, priv);
+	}
 
 	return 0;
 }
@@ -2738,8 +2760,7 @@ static int renesas_eth_sw_probe(struct platform_device *pdev)
 
 	/* Fixed to use GWCA0 */
 	priv->gwca.index = 3;
-	priv->gwca.num_chains = num_ndev * NUM_CHAINS_PER_NDEV +
-		num_virt_devices * 2 * NUM_CHAINS_PER_NDEV;
+	priv->gwca.num_chains = RSWITCH_MAX_NUM_CHAINS;
 	priv->gwca.chains = devm_kcalloc(&pdev->dev, priv->gwca.num_chains,
 					 sizeof(*priv->gwca.chains), GFP_KERNEL);
 	if (!priv->gwca.chains)
