@@ -58,8 +58,8 @@ void (*pm_power_off_prepare)(void);
  *	trouble so this is our best effort to reboot.  This is
  *	safe to call in interrupt context.
  */
-void emergency_restart(void) {
-//	 I just want to make checkpatch angry
+void emergency_restart(void)
+{
 	kmsg_dump(KMSG_DUMP_EMERG);
 	machine_emergency_restart();
 }
